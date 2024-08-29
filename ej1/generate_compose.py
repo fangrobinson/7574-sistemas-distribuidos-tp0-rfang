@@ -19,6 +19,9 @@ BASE_YAML = {
             ],
             "networks": [
                 "testing_net"
+            ],
+            "volumes": [
+                "./server/config.ini:/config.ini"
             ]
         },
     },
@@ -66,6 +69,9 @@ def main():
             ],
             "depends_on": [
                 "server"
+            ],
+            "volumes": [
+                "./client/config.yaml:/config.yaml"
             ]
         }
         for i in range(1, client_n+1)
