@@ -115,7 +115,7 @@ func main() {
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, syscall.SIGTERM)
 	client := common.NewClient(clientConfig)
-	client.StartClientLoop()
+	go client.StartClientLoop()
 	s := <-c
 	client.Shutdown()
 }
