@@ -116,6 +116,12 @@ func main() {
 	signal.Notify(c, syscall.SIGTERM)
 	client := common.NewClient(clientConfig)
 	go client.StartClientLoop()
-	s := <-c
-	client.Shutdown()
+
+	for {
+		s := <-c
+		if s == syscall.SIGTERM {
+			client.Shutdown()
+			break
+		}
+	}
 }
