@@ -2,6 +2,7 @@ package common
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
 	"net"
 	"time"
@@ -23,19 +24,23 @@ type ClientConfig struct {
 type Client struct {
 	config ClientConfig
 	conn   net.Conn
+	bet    Bet
 }
 
 // NewClient Initializes a new client receiving the configuration
 // as a parameter
-func NewClient(config ClientConfig) *Client {
+func NewClient(config ClientConfig, bet *Bet) *Client {
 	client := &Client{
 		config: config,
+		bet:    *bet,
 	}
 	return client
 }
 
 func (c *Client) Shutdown() {
-	if c.conn != nil { c.conn.Close() }
+	if c.conn != nil {
+		c.conn.Close()
+	}
 }
 
 // CreateClientSocket Initializes client socket. In case of
@@ -54,6 +59,16 @@ func (c *Client) createClientSocket() error {
 	return nil
 }
 
+func (c *Client) sendSingleBet() error {
+	var buffer bytes.Buffer
+	buffer.WriteByte(byte(1))
+	buffer.WriteString(fmt.Sprintf("%-3s", c.config.ID)[:3])
+	c.bet.extendBuffer(&buffer)
+	// TODO: fix short write
+	_, err := c.conn.Write(buffer.Bytes())
+	return err
+}
+
 // StartClientLoop Send messages to the client until some time threshold is met
 func (c *Client) StartClientLoop() {
 	// There is an autoincremental msgID to identify every message sent
@@ -63,12 +78,7 @@ func (c *Client) StartClientLoop() {
 		c.createClientSocket()
 
 		// TODO: Modify the send to avoid short-write
-		fmt.Fprintf(
-			c.conn,
-			"[CLIENT %v] Message N°%v\n",
-			c.config.ID,
-			msgID,
-		)
+		c.sendSingleBet()
 		msg, err := bufio.NewReader(c.conn).ReadString('\n')
 		c.conn.Close()
 
@@ -79,7 +89,10 @@ func (c *Client) StartClientLoop() {
 			)
 			return
 		}
-
+		log.Infof("action: apuesta_enviada | result: success | dni: %v | numero: %v",
+			c.bet.ID,
+			c.bet.Number,
+		)
 		log.Infof("action: receive_message | result: success | client_id: %v | msg: %v",
 			c.config.ID,
 			msg,

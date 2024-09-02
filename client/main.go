@@ -39,6 +39,11 @@ func InitConfig() (*viper.Viper, error) {
 	v.BindEnv("loop", "period")
 	v.BindEnv("loop", "amount")
 	v.BindEnv("log", "level")
+	v.BindEnv("nombre")
+	v.BindEnv("apellido")
+	v.BindEnv("documento")
+	v.BindEnv("nacimiento")
+	v.BindEnv("numero")
 
 	// Try to read configuration from config file. If config file
 	// does not exists then ReadInConfig will fail but configuration
@@ -56,6 +61,27 @@ func InitConfig() (*viper.Viper, error) {
 	}
 
 	return v, nil
+}
+
+func NewBetFromEnvVars() (*common.Bet, error) {
+	v := viper.New()
+
+	// Configure viper to read env variables without prefix
+	v.AutomaticEnv()
+	v.SetEnvPrefix("")
+	// Use a replacer to replace env variables underscores with points. This let us
+	// use nested configurations in the config file and at the same time define
+	// env variables for the nested configurations
+	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+
+	// Add env variables supported
+	v.BindEnv("nombre")
+	v.BindEnv("apellido")
+	v.BindEnv("documento")
+	v.BindEnv("nacimiento")
+	v.BindEnv("numero")
+
+	return common.NewBet(v), nil
 }
 
 // InitLogger Receives the log level to be set in go-logging as a string. This method
@@ -105,6 +131,11 @@ func main() {
 	// Print program config with debugging purposes
 	PrintConfig(v)
 
+	bet, err := NewBetFromEnvVars()
+	if err != nil {
+		log.Criticalf("%s", err)
+	}
+
 	clientConfig := common.ClientConfig{
 		ServerAddress: v.GetString("server.address"),
 		ID:            v.GetString("id"),
@@ -114,7 +145,7 @@ func main() {
 
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, syscall.SIGTERM)
-	client := common.NewClient(clientConfig)
+	client := common.NewClient(clientConfig, bet)
 	go client.StartClientLoop()
 
 	for {
