@@ -1,12 +1,12 @@
 package common
 
 import (
-	"bytes"
-	"fmt"
 	"net"
 	"time"
 
+	"github.com/7574-sistemas-distribuidos/docker-compose-init/client/model"
 	"github.com/7574-sistemas-distribuidos/docker-compose-init/client/protocol"
+	"github.com/7574-sistemas-distribuidos/docker-compose-init/client/serialization"
 	"github.com/op/go-logging"
 )
 
@@ -24,12 +24,12 @@ type ClientConfig struct {
 type Client struct {
 	config ClientConfig
 	conn   net.Conn
-	bet    Bet
+	bet    model.Bet
 }
 
 // NewClient Initializes a new client receiving the configuration
 // as a parameter
-func NewClient(config ClientConfig, bet *Bet) *Client {
+func NewClient(config ClientConfig, bet *model.Bet) *Client {
 	client := &Client{
 		config: config,
 		bet:    *bet,
@@ -59,16 +59,6 @@ func (c *Client) createClientSocket() error {
 	return nil
 }
 
-func (c *Client) sendSingleBet() error {
-	var buffer bytes.Buffer
-	buffer.WriteByte(byte(1))
-	buffer.WriteString(fmt.Sprintf("%-3s", c.config.ID)[:3])
-	c.bet.extendBuffer(&buffer)
-	// TODO: fix short write
-	_, err := c.conn.Write(buffer.Bytes())
-	return err
-}
-
 // StartClientLoop Send messages to the client until some time threshold is met
 func (c *Client) StartClientLoop() {
 	// There is an autoincremental msgID to identify every message sent
@@ -78,7 +68,24 @@ func (c *Client) StartClientLoop() {
 		c.createClientSocket()
 
 		// TODO: Modify the send to avoid short-write
-		c.sendSingleBet()
+		buff, err := serialization.EncodeBet(c.config.ID, c.bet)
+		if err != nil {
+			log.Criticalf(
+				"action: apuesta_enviada | result: fail | dni: %v | numero: %v, %v",
+				c.bet.ID,
+				c.bet.Number,
+				err,
+			)
+		}
+		err = protocol.SendMessage(c.conn, buff.Bytes())
+		if err != nil {
+			log.Criticalf(
+				"action: apuesta_enviada | result: fail | dni: %v | numero: %v, %v",
+				c.bet.ID,
+				c.bet.Number,
+				err,
+			)
+		}
 		m, err := protocol.ReceiveMessage(c.conn)
 		if err != nil || (len(m) != 1 && m[0] != 2) {
 			log.Criticalf(

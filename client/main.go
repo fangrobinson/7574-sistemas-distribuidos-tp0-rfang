@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/7574-sistemas-distribuidos/docker-compose-init/client/common"
+	"github.com/7574-sistemas-distribuidos/docker-compose-init/client/model"
 )
 
 var log = logging.MustGetLogger("log")
@@ -63,7 +64,7 @@ func InitConfig() (*viper.Viper, error) {
 	return v, nil
 }
 
-func NewBetFromEnvVars() (*common.Bet, error) {
+func NewBetFromEnvVars() (*model.Bet, error) {
 	v := viper.New()
 
 	// Configure viper to read env variables without prefix
@@ -81,7 +82,7 @@ func NewBetFromEnvVars() (*common.Bet, error) {
 	v.BindEnv("nacimiento")
 	v.BindEnv("numero")
 
-	return common.NewBet(v), nil
+	return model.NewBet(v), nil
 }
 
 // InitLogger Receives the log level to be set in go-logging as a string. This method

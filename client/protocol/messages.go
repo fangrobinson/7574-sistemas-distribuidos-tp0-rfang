@@ -1,6 +1,8 @@
 package protocol
 
-import "fmt"
+import (
+	"fmt"
+)
 
 // GetMessageLength returns the length of the data associated with a specific message code.
 func GetMessageLength(code byte) (int, error) {
