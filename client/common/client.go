@@ -1,12 +1,12 @@
 package common
 
 import (
-	"bufio"
 	"bytes"
 	"fmt"
 	"net"
 	"time"
 
+	"github.com/7574-sistemas-distribuidos/docker-compose-init/client/protocol"
 	"github.com/op/go-logging"
 )
 
@@ -79,24 +79,21 @@ func (c *Client) StartClientLoop() {
 
 		// TODO: Modify the send to avoid short-write
 		c.sendSingleBet()
-		msg, err := bufio.NewReader(c.conn).ReadString('\n')
-		c.conn.Close()
-
-		if err != nil {
-			log.Errorf("action: receive_message | result: fail | client_id: %v | error: %v",
-				c.config.ID,
+		m, err := protocol.ReceiveMessage(c.conn)
+		if err != nil || (len(m) != 1 && m[0] != 2) {
+			log.Criticalf(
+				"action: apuesta_enviada | result: fail | dni: %v | numero: %v, %v",
+				c.bet.ID,
+				c.bet.Number,
 				err,
 			)
-			return
+		} else {
+			log.Infof("action: apuesta_enviada | result: success | dni: %v | numero: %v",
+				c.bet.ID,
+				c.bet.Number,
+			)
 		}
-		log.Infof("action: apuesta_enviada | result: success | dni: %v | numero: %v",
-			c.bet.ID,
-			c.bet.Number,
-		)
-		log.Infof("action: receive_message | result: success | client_id: %v | msg: %v",
-			c.config.ID,
-			msg,
-		)
+		c.conn.Close()
 
 		// Wait a time between sending one message and the next one
 		time.Sleep(c.config.LoopPeriod)

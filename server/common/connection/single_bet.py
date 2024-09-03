@@ -42,7 +42,3 @@ class SingleBetMessage(Message):
     def validate(self, message_bytes):
         if len(message_bytes) != self.DATA_LENGTH:
             raise ValueError(f"Data should be {self.DATA_LENGTH} bytes")
-
-    @classmethod
-    def encode(cls) -> bytes:
-        return b''
