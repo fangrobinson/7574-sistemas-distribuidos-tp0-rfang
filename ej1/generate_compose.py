@@ -69,7 +69,8 @@ def main():
                 "server"
             ],
             "volumes": [
-                "./client/config.yaml:/config.yaml"
+                "./client/config.yaml:/config.yaml",
+                "./.data/dataset/:/data/"
             ]
         }
         for i in range(1, client_n+1)

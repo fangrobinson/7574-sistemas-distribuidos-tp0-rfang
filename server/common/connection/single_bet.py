@@ -22,8 +22,10 @@ class SingleBetMessage(Message):
         NUMBER_FIELD_LENGTH,
     ))
 
-    def parse(self, message_bytes) -> List[str]:
-        self.validate(message_bytes)
+    def data_length(self, header) -> int:
+        return self.DATA_LENGTH
+
+    def parse(self, header, message_bytes) -> list:
         read_bytes = 0
         agency = message_bytes[read_bytes:read_bytes+AGENCY_FIELD_LENGTH].decode("utf-8").rstrip()
         read_bytes += AGENCY_FIELD_LENGTH
@@ -38,7 +40,3 @@ class SingleBetMessage(Message):
         number = int.from_bytes(message_bytes[read_bytes:read_bytes+NUMBER_FIELD_LENGTH], "big")
         read_bytes += NUMBER_FIELD_LENGTH
         return [agency, first_name, last_name, document, birthdate, number]
-
-    def validate(self, message_bytes):
-        if len(message_bytes) != self.DATA_LENGTH:
-            raise ValueError(f"Data should be {self.DATA_LENGTH} bytes")

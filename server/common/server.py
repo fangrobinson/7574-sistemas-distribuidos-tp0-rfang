@@ -7,6 +7,7 @@ from common.connection.types import MessageType
 from common.utils import Bet, store_bets
 from common.connection.message_sender import MessageSender
 from common.connection.single_bet_ack import SingleBetAckMessage
+from common.connection.multiple_bet_ack import MultipleBetAckMessage
 
 class Server:
     def __init__(self, port, listen_backlog):
@@ -52,7 +53,15 @@ class Server:
                 store_bets([bet])
                 logging.info(f'action: apuesta_almacenada | result: success | dni: {document} | numero: {number}')
                 MessageSender.send(client_sock, SingleBetAckMessage())
-            # addr = client_sock.getpeername()
+            if msg[0] == MessageType.MULTIPLE_BET.value:
+                agency, bets_amount, bets = msg[1:]
+                bets = [Bet(agency, *bet) for bet in bets]
+                if len(bets) != bets_amount:
+                    logging.error(f'action: apuesta_recibida | result: fail | cantidad: {0}')
+                else:
+                    store_bets(bets)
+                    logging.info(f'action: apuesta_recibida | result: success | cantidad: {len(bets)}')
+                    MessageSender.send(client_sock, MultipleBetAckMessage())
         except OSError as e:
             logging.info(f'action: apuesta_almacenada | result: fail | error: {e}')
         finally:
@@ -73,6 +82,5 @@ class Server:
         return c
 
     def __handle_sigterm(self, signum, frame):
-        # TODO : add compliant logging
         self._server_socket.close()
         self._run = False

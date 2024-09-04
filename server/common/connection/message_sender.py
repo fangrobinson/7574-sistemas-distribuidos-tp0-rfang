@@ -10,6 +10,5 @@ class MessageSender:
         while sent < len(data):
             _sent = client_socket.send(data[sent:])
             if _sent == 0:
-                # TODO: proper logging.
-                raise RuntimeError("")            
+                raise RuntimeError("Socket was closed")
             sent += _sent

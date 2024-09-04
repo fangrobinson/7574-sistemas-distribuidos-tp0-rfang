@@ -18,8 +18,12 @@ class MessageReceiver:
             logging.warning("Unknown message type:", code)
             return ["UNKNOWN"]
         msg_type = cls.MESSAGE_TYPES[code]
-        data = msg_type.parse(cls._recv(client_socket, msg_type.DATA_LENGTH))
-        return [code] + data
+        header = []
+        if msg_type.HEADER_LENGTH:
+            header = msg_type.parse_header(cls._recv(client_socket, msg_type.HEADER_LENGTH))
+        data_length = msg_type.data_length(header)
+        data = msg_type.parse(header, cls._recv(client_socket, data_length))
+        return [code] + header + data
 
     @classmethod
     def _recv(cls, client_socket: socket.socket, n: int) -> bytes:
@@ -27,7 +31,6 @@ class MessageReceiver:
         while len(buffer) < n:
             chunk = client_socket.recv(n - len(buffer))
             if not chunk:
-                # TODO: proper logging.
-                raise RuntimeError("")
+                raise RuntimeError("Socket was closed")
             buffer.extend(chunk)
         return buffer

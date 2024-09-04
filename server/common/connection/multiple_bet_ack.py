@@ -2,8 +2,8 @@ from .message import Message
 from .types import MessageType
 
 
-class SingleBetAckMessage(Message):
-    CODE = MessageType.SINGLE_BET_ACK
+class MultipleBetAckMessage(Message):
+    CODE = MessageType.MULTIPLE_BET_ACK
 
     def parse(self, header, message_bytes) -> list:
         return []

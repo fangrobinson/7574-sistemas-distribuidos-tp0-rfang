@@ -35,3 +35,24 @@ func EncodeBet(
 	}
 	return &buffer, nil
 }
+
+func EncodeMultipleBets(
+	agencyId string,
+	bets []model.Bet,
+) (*bytes.Buffer, error) {
+	var buffer bytes.Buffer
+	if err := binary.Write(&buffer, binary.BigEndian, uint8(3)); err != nil {
+		return nil, err
+	}
+	buffer.WriteString(fmt.Sprintf("%-3s", agencyId)[:3])
+	if err := binary.Write(&buffer, binary.BigEndian, uint8(len(bets))); err != nil {
+		return nil, err
+	}
+	for _, bet := range bets {
+		err := BetExtendBuffer(bet, &buffer)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &buffer, nil
+}

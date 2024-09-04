@@ -30,3 +30,48 @@ Los campos del mensaje son:
 #### 2 SINGLE_BET_ACK
 
 Es un mensaje que envía del Server a Client. Confirma la recepción de la apuesta.
+
+┌─────────┐
+│ código  │
+│ (1 byte)│
+├─────────┤
+│ C       │
+└─────────┘
+
+
+
+
+#### 3 MULTIPLE_BET
+
+Es un mensaje que envía Client a Server. Contiene la información de n apuestas.
+
+Los campos del mensaje son:
+
+```
+┌─────────┬──────────┬────────────┬────────────────────────────────┬
+│ código  │ agencia  │  cantidad  │             nombre             │
+│ (1 byte)│(3 bytes) │ (1 byte)   │           (30 bytes)           │
+├─────────┼──────────┼────────────┼────────────────────────────────┼
+│ C       │ AAA      │ C          │ NNNNNNNNNNNNNNNNNNNNNNNNNNNNNN │
+└─────────┴──────────┴────────────┴────────────────────────────────┴
+
+─────────────────────┬──────────┬───────────────────┬─────────┬─ ... ─┐
+      apellido       │   dni    │fecha de nacimiento│  número │  ...  │
+     (20 bytes)      │(4 bytes) │    (10 bytes)     │(2 bytes)│  ...  │
+─────────────────────┼──────────┼───────────────────┼─────────┼─ ... ─┤
+ AAAAAAAAAAAAAAAAAAAA│ DDDDDDDD │ YYYY-MM-DD        │ NN      │  ...  │
+─────────────────────┴──────────┴───────────────────┴─────────┴─ ... ─┘
+
+```
+
+
+#### 4 MULTIPLE_BET_ACK
+
+Es un mensaje que envía del Server a Client. Confirma la recepción de todas las apuestas.
+
+┌─────────┐
+│ código  │
+│ (1 byte)│
+├─────────┤
+│ C       │
+└─────────┘

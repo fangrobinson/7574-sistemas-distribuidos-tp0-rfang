@@ -11,8 +11,15 @@ class MessageMeta(type):
 
 
 class Message(metaclass=MessageMeta):
-    DATA_LENGTH = 0
-    def parse(self, message_bytes) -> List[str]: ...
+    HEADER_LENGTH = 0
+
+    def data_length(self, header) -> int:
+        return 0
+
+    def parse_header(self, message_bytes) -> list:
+        return list()
+
+    def parse(self, header, message_bytes) -> list: ...
 
     @classmethod
     def encode(cls, *args, **kwargs) -> bytes:
