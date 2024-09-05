@@ -2,8 +2,7 @@ import socket
 import logging
 import signal
 
-from enum import Enum
-from multiprocessing import Lock, Value, Manager
+from multiprocessing import Lock, Manager
 from multiprocessing import Process
 
 from common.connection.message_receiver import MessageReceiver
@@ -15,11 +14,6 @@ from common.connection import MultipleBetAckMessage
 from common.connection import NoMoreBetsAckMessage
 from common.connection import WaitMessage
 from common.connection.winners import WinnersMessage
-
-class ProcessWinnersState(Enum):
-    NOT_PROCESSED = 1
-    PROCESSING = 2
-    FINISHED = 3
 
 
 class Server:
@@ -35,7 +29,6 @@ class Server:
         signal.signal(signal.SIGTERM, self.__handle_sigterm)
         self._bets_lock = Lock()
         self._process_winners_lock = Lock()
-        self._process_winners_state = Value('I', ProcessWinnersState.NOT_PROCESSED.value)
         self._processes = []
 
     def run(self):
@@ -62,13 +55,11 @@ class Server:
 
     def __process_winners(self):
         with self._process_winners_lock:
-            current_state = ProcessWinnersState(self._process_winners_state.value)
-            if current_state == ProcessWinnersState.NOT_PROCESSED:
-                self._process_winners_state.value = ProcessWinnersState.PROCESSING.value
-                bets = self.__locked_load_bets()
-                winners = list(map(lambda x: (x.agency, x.document), filter(has_won, bets)))
-                self._winners["winners"] = winners
-                self._process_winners_state.value = ProcessWinnersState.FINISHED.value
+            with self._bets_lock:
+                if "winners" not in self._winners:
+                    bets = load_bets()
+                    winners = list(map(lambda x: (x.agency, x.document), filter(has_won, bets)))
+                    self._winners["winners"] = winners
 
     def __agency_winners(self, agency):
         return list(map(lambda x: x[1], filter(lambda x: int(x[0]) == int(agency), self._winners["winners"])))
@@ -76,10 +67,6 @@ class Server:
     def __locked_store_bets(self, bets: list[Bet]):
         with self._bets_lock:
             return store_bets(bets)
-
-    def __locked_load_bets(self):
-        with self._bets_lock:
-            return load_bets()
 
     def __handle_client_connection(self, client_sock: socket.socket):
         """
@@ -111,7 +98,6 @@ class Server:
                 MessageSender.send(client_sock, NoMoreBetsAckMessage().encode())
             if msg[0] == MessageType.GET_WINNERS.value:
                 agency = msg[1]
-                logging.info(f"WINNERS state: {self._process_winners_state.value}")
                 if len(self._finished_agencies) >= self._agencies_min_amount:
                     if "winners" in self._winners:
                         agency_winners = self.__agency_winners(agency)

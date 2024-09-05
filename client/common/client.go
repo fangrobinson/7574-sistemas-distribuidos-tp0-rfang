@@ -124,9 +124,6 @@ func (c *Client) SendBets() ([]model.Bet, error) {
 
 		allBets = append(allBets, bets...)
 		startLine += batchSize
-
-		// Wait a time between sending one batch and the next
-		time.Sleep(c.config.LoopPeriod)
 	}
 }
 
@@ -149,9 +146,6 @@ func (c *Client) SendNoMoreBets() error {
 			return err
 		}
 		log.Infof("action: no_more_bets | result: sent")
-
-		time.Sleep(c.config.LoopPeriod)
-
 		m, err := protocol.ReceiveMessage(c.conn)
 		if err != nil {
 			log.Infof("action: no_more_bets | result: fail")
@@ -163,7 +157,6 @@ func (c *Client) SendNoMoreBets() error {
 			break
 		}
 		c.conn.Close()
-		time.Sleep(c.config.LoopPeriod)
 	}
 	return nil
 }
@@ -192,7 +185,6 @@ func (c *Client) PollWinner() ([]int, error) {
 			// waiting
 			c.conn.Close()
 			log.Infof("action: poll_winner | result: success | answer: wait")
-			time.Sleep(c.config.LoopPeriod)
 			continue
 		}
 
