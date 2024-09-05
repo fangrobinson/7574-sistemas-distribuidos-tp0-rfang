@@ -15,6 +15,7 @@ BASE_YAML = {
             "entrypoint": "python3 /main.py",
             "environment": [
                 "PYTHONUNBUFFERED=1",
+                "AGENCY_MIN_AMOUNT=5"
             ],
             "networks": [
                 "testing_net"

@@ -1,5 +1,3 @@
-from typing import List
-
 from .message_receiver import MessageReceiver
 
 class MessageMeta(type):

@@ -31,6 +31,6 @@ class MessageReceiver:
         while len(buffer) < n:
             chunk = client_socket.recv(n - len(buffer))
             if not chunk:
-                raise RuntimeError("Socket was closed")
+                raise RuntimeError(f"Socket was closed {n} - {len(buffer)}")
             buffer.extend(chunk)
         return buffer

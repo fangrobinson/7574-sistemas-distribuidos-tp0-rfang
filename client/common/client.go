@@ -1,8 +1,10 @@
 package common
 
 import (
+	"encoding/binary"
 	"encoding/csv"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"strconv"
@@ -57,37 +59,38 @@ func (c *Client) createClientSocket() error {
 			c.config.ID,
 			err,
 		)
+		return err
 	}
 	c.conn = conn
 	return nil
 }
 
-// StartClientLoop Send messages to the client until some time threshold is met
-func (c *Client) StartClientLoop() {
+func (c *Client) SendBets() ([]model.Bet, error) {
 	startLine := 0
 	batchSize := c.config.MaxBatchAmount
 	filePath := fmt.Sprintf("/data/agency-%v.csv", c.config.ID)
 
-	// There is an autoincremental msgID to identify every message sent
-	// Messages if the message amount threshold has not been surpassed
-	for msgID := 1; msgID <= c.config.LoopAmount; msgID++ {
-		// Create the connection the server in every loop iteration. Send an
-		c.createClientSocket()
+	allBets := make([]model.Bet, 0)
 
+	for {
 		file, err := os.Open(filePath)
 		if err != nil {
 			log.Criticalf("action: apuestas_enviadas | result: fail | cantidad: 0")
+			return nil, err
 		}
-
 		reader := csv.NewReader(file)
 
+		// Skip already processed lines
 		for i := 0; i < startLine; i++ {
 			_, err := reader.Read()
 			if err != nil {
-				if err.Error() == "EOF" {
-					break
+				if err == io.EOF {
+					file.Close()
+					return allBets, nil
 				}
 				log.Criticalf("action: apuestas_enviadas | result: fail | cantidad: 0")
+				file.Close()
+				return nil, err
 			}
 		}
 
@@ -95,43 +98,176 @@ func (c *Client) StartClientLoop() {
 		for i := 0; i < batchSize; i++ {
 			record, err := reader.Read()
 			if err != nil {
-				if err.Error() == "EOF" {
+				if err == io.EOF {
 					break
 				}
 				log.Criticalf("action: apuestas_enviadas | result: fail | cantidad: 0")
+				file.Close()
+				return nil, err
 			}
 			lines = append(lines, record)
 		}
 		file.Close()
 
-		err = c.ProcessBatch(batchSize, lines)
+		err = c.createClientSocket()
 		if err != nil {
 			log.Criticalf("action: apuestas_enviadas | result: fail | cantidad: 0")
-			return
+			return nil, err
 		}
+
+		bets, err := c.ProcessBatch(batchSize, lines)
+		c.conn.Close()
+		if err != nil {
+			log.Criticalf("action: apuestas_enviadas | result: fail | cantidad: 0")
+			return nil, err
+		}
+
+		allBets = append(allBets, bets...)
 		startLine += batchSize
+
+		// Wait a time between sending one batch and the next
+		time.Sleep(c.config.LoopPeriod)
+	}
+}
+
+func (c *Client) SendNoMoreBets() error {
+	for {
+		err := c.createClientSocket()
+		if err != nil {
+			log.Criticalf("action: no_more_bests | result: connection_failed")
+			return err
+		}
+
+		bytes, err := serialization.EncodeNoMoreBets(c.config.ID)
+		if err != nil {
+			continue
+		}
+		err = protocol.SendMessage(c.conn, bytes.Bytes())
+		if err != nil {
+			log.Infof("action: no_more_bets | result: not sent")
+			c.conn.Close()
+			return err
+		}
+		log.Infof("action: no_more_bets | result: sent")
+
+		time.Sleep(c.config.LoopPeriod)
+
+		m, err := protocol.ReceiveMessage(c.conn)
+		if err != nil {
+			log.Infof("action: no_more_bets | result: fail")
+			c.conn.Close()
+			return err
+		}
+		if len(m) == 1 && m[0] == serialization.NO_MORE_BETS_ACK {
+			log.Infof("action: no_more_bets | result: success")
+			break
+		}
+		c.conn.Close()
+		time.Sleep(c.config.LoopPeriod)
+	}
+	return nil
+}
+
+func (c *Client) PollWinner() ([]int, error) {
+	for {
+		// Create the connection the server in every loop iteration.
+		c.createClientSocket()
+		bytes, err := serialization.EncodeGetWinners(c.config.ID)
+		if err != nil {
+			c.conn.Close()
+			continue
+		}
+		err = protocol.SendMessage(c.conn, bytes.Bytes())
+		if err != nil {
+			return nil, err
+		}
+
+		m, err := protocol.ReceiveMessage(c.conn)
+		if err != nil {
+			return nil, err
+		}
+		if len(m) == 1 && m[0] == serialization.WAIT {
+			// Even though it's the same
+			// this case it's exclicitely
+			// waiting
+			c.conn.Close()
+			log.Infof("action: poll_winner | result: success | answer: wait")
+			time.Sleep(c.config.LoopPeriod)
+			continue
+		}
+
+		if len(m) >= 3 && m[0] == serialization.WINNERS {
+			c.conn.Close()
+			winnersAmountInt := int(binary.BigEndian.Uint16(m[1:3]))
+			winnersIDs := make([]int, 0)
+			for i := 0; i < winnersAmountInt; i++ {
+				idStart := 3 + i*4
+				idEnd := idStart + 4
+				winnerId := int(binary.BigEndian.Uint32(m[idStart:idEnd]))
+				winnersIDs = append(winnersIDs, winnerId)
+			}
+			log.Infof("action: poll_winner | result: success | answer: %v, %v", winnersAmountInt, len(winnersIDs))
+			return winnersIDs, nil
+		}
 
 		c.conn.Close()
 
 		// Wait a time between sending one message and the next one
 		time.Sleep(c.config.LoopPeriod)
-
 	}
-	log.Infof("action: loop_finished | result: success | client_id: %v", c.config.ID)
 }
 
-func (c *Client) ProcessBatch(maxBatchSize int, lines [][]string) error {
+func CheckWinners(bets []model.Bet, winners []int) {
+	winners_amount := 0
+	if len(winners) > 0 {
+		winnersMap := make(map[int]bool)
+		for _, id := range winners {
+			winnersMap[id] = true
+		}
+		for _, bet := range bets {
+			if winnersMap[bet.ID] {
+				winners_amount++
+			}
+		}
+	}
+	log.Infof("action: consulta_ganadores | result: success | cant_ganadores: %v", winners_amount)
+}
+
+// StartClientLoop Send messages to the client until some time threshold is met
+func (c *Client) StartClientLoop() {
+	bets, err := c.SendBets()
+	if err != nil {
+		log.Infof("action: send_bets | result: fail | client_id: %v", c.config.ID)
+		return
+	} else {
+		log.Infof("action: send_bets | result: success | client_id: %v", c.config.ID)
+	}
+	c.conn.Close()
+	err = c.SendNoMoreBets()
+	if err != nil {
+		log.Criticalf("action: error | %v", err)
+		return
+	}
+	winners, err := c.PollWinner()
+	if err != nil {
+		return
+	}
+	CheckWinners(bets, winners)
+	log.Infof("action: run_agency | result: success | client_id: %v", c.config.ID)
+}
+
+func (c *Client) ProcessBatch(maxBatchSize int, lines [][]string) ([]model.Bet, error) {
 	bets := make([]model.Bet, 0, maxBatchSize)
 	for _, record := range lines {
 		id, err := strconv.Atoi(record[2])
 		if err != nil {
 			log.Fatalf("failed to convert ID: %v", err)
-			return err
+			return nil, err
 		}
 		number, err := strconv.Atoi(record[4])
 		if err != nil {
 			log.Fatalf("failed to convert number: %v", err)
-			return err
+			return nil, err
 		}
 
 		bets = append(bets, model.Bet{
@@ -142,18 +278,22 @@ func (c *Client) ProcessBatch(maxBatchSize int, lines [][]string) error {
 			Number:    number,
 		})
 	}
+
 	bytes, err := serialization.EncodeMultipleBets(c.config.ID, bets)
 	if err != nil {
-		return err
+		return nil, err
 	}
+
 	err = protocol.SendMessage(c.conn, bytes.Bytes())
 	if err != nil {
-		return err
+		return nil, err
 	}
+
 	m, err := protocol.ReceiveMessage(c.conn)
 	if err != nil || (len(m) != 1 && m[0] != 4) {
-		return err
+		return nil, err
 	}
+
 	log.Infof("action: apuestas_enviadas | result: success | cantidad: %v", len(bets))
-	return nil
+	return bets, nil
 }

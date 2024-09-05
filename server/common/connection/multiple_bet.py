@@ -1,5 +1,3 @@
-from typing import List
-
 from .message import Message
 from .types import MessageType
 
