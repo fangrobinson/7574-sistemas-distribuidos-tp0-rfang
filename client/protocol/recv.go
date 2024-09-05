@@ -18,9 +18,13 @@ func ReceiveMessage(conn net.Conn) ([]byte, error) {
 
 	data := make([]byte, length)
 	if length > 0 {
-		_, err := conn.Read(data)
-		if err != nil {
-			return nil, err
+		totalRead := 0
+		for totalRead < length {
+			n, err := conn.Read(data[totalRead:])
+			if err != nil {
+				return nil, err
+			}
+			totalRead += n
 		}
 	}
 	message := append(code, data...)
