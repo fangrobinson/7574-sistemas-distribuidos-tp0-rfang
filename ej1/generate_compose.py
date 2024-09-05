@@ -15,7 +15,6 @@ BASE_YAML = {
             "entrypoint": "python3 /main.py",
             "environment": [
                 "PYTHONUNBUFFERED=1",
-                "AGENCY_MIN_AMOUNT=5"
             ],
             "networks": [
                 "testing_net"
@@ -55,6 +54,7 @@ def main():
     Path(path_to_yaml).parent.mkdir(parents=True, exist_ok=True)
     yaml_config = deepcopy(BASE_YAML)
     services: dict = yaml_config["services"]
+    services["server"]["environment"].append(f"AGENCY_MIN_AMOUNT={client_n}")
     new_services = {
         f"client{i}": {
             "container_name": f"client{i}",

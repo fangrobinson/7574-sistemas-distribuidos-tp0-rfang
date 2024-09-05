@@ -124,9 +124,6 @@ func (c *Client) SendBets() ([]model.Bet, error) {
 
 		allBets = append(allBets, bets...)
 		startLine += batchSize
-
-		// Wait a time between sending one batch and the next
-		time.Sleep(c.config.LoopPeriod)
 	}
 }
 
@@ -163,7 +160,6 @@ func (c *Client) SendNoMoreBets() error {
 			break
 		}
 		c.conn.Close()
-		time.Sleep(c.config.LoopPeriod)
 	}
 	return nil
 }
@@ -211,9 +207,6 @@ func (c *Client) PollWinner() ([]int, error) {
 		}
 
 		c.conn.Close()
-
-		// Wait a time between sending one message and the next one
-		time.Sleep(c.config.LoopPeriod)
 	}
 }
 
