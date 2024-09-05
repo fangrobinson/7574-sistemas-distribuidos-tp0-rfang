@@ -2,15 +2,25 @@ import socket
 import logging
 import signal
 
+from enum import Enum
+from multiprocessing import Lock, Value, Manager
+from multiprocessing import Process
+
 from common.connection.message_receiver import MessageReceiver
 from common.connection.types import MessageType
-from common.utils import Bet, has_won, load_bets, store_bets, LOTTERY_WINNER_NUMBER
+from common.utils import Bet, has_won, load_bets, store_bets
 from common.connection.message_sender import MessageSender
 from common.connection import SingleBetAckMessage
 from common.connection import MultipleBetAckMessage
 from common.connection import NoMoreBetsAckMessage
 from common.connection import WaitMessage
 from common.connection.winners import WinnersMessage
+
+class ProcessWinnersState(Enum):
+    NOT_PROCESSED = 1
+    PROCESSING = 2
+    FINISHED = 3
+
 
 class Server:
     def __init__(self, port, listen_backlog, agencies_min_amount):
@@ -20,9 +30,13 @@ class Server:
         self._server_socket.listen(listen_backlog)
         self._run = True
         self._agencies_min_amount = agencies_min_amount
-        self._finished_agencies = set()
-        self._winners = {}
+        self._finished_agencies = Manager().dict()
+        self._winners = Manager().dict()
         signal.signal(signal.SIGTERM, self.__handle_sigterm)
+        self._bets_lock = Lock()
+        self._process_winners_lock = Lock()
+        self._process_winners_state = Value('I', ProcessWinnersState.NOT_PROCESSED.value)
+        self._processes = []
 
     def run(self):
         """
@@ -38,19 +52,34 @@ class Server:
         while self._run:
             try:
                 client_sock = self.__accept_new_connection()
-                self.__handle_client_connection(client_sock)
+                p = Process(target=self.__handle_client_connection, args=(client_sock, ))
+                p.start()
+                self._processes.append(p)
             except OSError as _:
                 if not self._run:
                     break
                 raise
 
     def __process_winners(self):
-        bets = load_bets()
-        winners = list(map(lambda x: (x.agency, x.document), filter(has_won, bets)))
-        self._winners["winners"] = winners
+        with self._process_winners_lock:
+            current_state = ProcessWinnersState(self._process_winners_state.value)
+            if current_state == ProcessWinnersState.NOT_PROCESSED:
+                self._process_winners_state.value = ProcessWinnersState.PROCESSING.value
+                bets = self.__locked_load_bets()
+                winners = list(map(lambda x: (x.agency, x.document), filter(has_won, bets)))
+                self._winners["winners"] = winners
+                self._process_winners_state.value = ProcessWinnersState.FINISHED.value
 
     def __agency_winners(self, agency):
         return list(map(lambda x: x[1], filter(lambda x: int(x[0]) == int(agency), self._winners["winners"])))
+
+    def __locked_store_bets(self, bets: list[Bet]):
+        with self._bets_lock:
+            return store_bets(bets)
+
+    def __locked_load_bets(self):
+        with self._bets_lock:
+            return load_bets()
 
     def __handle_client_connection(self, client_sock: socket.socket):
         """
@@ -64,7 +93,7 @@ class Server:
             if msg[0] == MessageType.SINGLE_BET.value:
                 agency, first_name, last_name, document, birthdate, number = msg[1:]
                 bet = Bet(agency, first_name, last_name, document, birthdate, number)
-                store_bets([bet])
+                self.__locked_store_bets([bet])
                 logging.info(f'action: apuesta_almacenada | result: success | dni: {document} | numero: {number}')
                 MessageSender.send(client_sock, SingleBetAckMessage().encode())
             if msg[0] == MessageType.MULTIPLE_BET.value:
@@ -73,15 +102,16 @@ class Server:
                 if len(bets) != bets_amount:
                     logging.error(f'action: apuesta_recibida | result: fail | cantidad: {0}')
                 else:
-                    store_bets(bets)
+                    self.__locked_store_bets(bets)
                     logging.info(f'action: apuesta_recibida | result: success | cantidad: {len(bets)}')
                     MessageSender.send(client_sock, MultipleBetAckMessage().encode())
             if msg[0] == MessageType.NO_MORE_BETS.value:
-                self._finished_agencies.add(msg[1])
+                self._finished_agencies[msg[1]] = True
                 logging.info(f'action: no_more_bets | result: success | agency: {msg[1]}')
                 MessageSender.send(client_sock, NoMoreBetsAckMessage().encode())
             if msg[0] == MessageType.GET_WINNERS.value:
                 agency = msg[1]
+                logging.info(f"WINNERS state: {self._process_winners_state.value}")
                 if len(self._finished_agencies) >= self._agencies_min_amount:
                     if "winners" in self._winners:
                         agency_winners = self.__agency_winners(agency)
@@ -119,3 +149,7 @@ class Server:
     def __handle_sigterm(self, signum, frame):
         self._server_socket.close()
         self._run = False
+        p: Process
+        for p in self._processes:
+            p.terminate()
+            p.join()
