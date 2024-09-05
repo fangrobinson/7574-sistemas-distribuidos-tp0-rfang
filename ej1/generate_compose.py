@@ -15,7 +15,6 @@ BASE_YAML = {
             "entrypoint": "python3 /main.py",
             "environment": [
                 "PYTHONUNBUFFERED=1",
-                "LOGGING_LEVEL=DEBUG"
             ],
             "networks": [
                 "testing_net"
@@ -62,7 +61,6 @@ def main():
             "entrypoint": "/client",
             "environment": [
                 f"CLI_ID={i}",
-                "CLI_LOG_LEVEL=DEBUG"
             ],
             "networks": [
                 "testing_net"
