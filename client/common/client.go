@@ -112,10 +112,6 @@ func (c *Client) StartClientLoop() {
 		startLine += batchSize
 
 		c.conn.Close()
-
-		// Wait a time between sending one message and the next one
-		time.Sleep(c.config.LoopPeriod)
-
 	}
 	log.Infof("action: loop_finished | result: success | client_id: %v", c.config.ID)
 }
