@@ -30,6 +30,7 @@ class Server:
         self._bets_lock = Lock()
         self._process_winners_lock = Lock()
         self._processes = []
+        self._shutdown_flag = Manager().Value('i', 0)
 
     def run(self):
         """
@@ -76,40 +77,45 @@ class Server:
         client socket will also be closed
         """
         try:
-            msg = MessageReceiver.recv(client_sock)
-            if msg[0] == MessageType.SINGLE_BET.value:
-                agency, first_name, last_name, document, birthdate, number = msg[1:]
-                bet = Bet(agency, first_name, last_name, document, birthdate, number)
-                self.__locked_store_bets([bet])
-                logging.info(f'action: apuesta_almacenada | result: success | dni: {document} | numero: {number}')
-                MessageSender.send(client_sock, SingleBetAckMessage().encode())
-            if msg[0] == MessageType.MULTIPLE_BET.value:
-                agency, bets_amount, bets = msg[1:]
-                bets = [Bet(agency, *bet) for bet in bets]
-                if len(bets) != bets_amount:
-                    logging.error(f'action: apuesta_recibida | result: fail | cantidad: {0}')
-                else:
-                    self.__locked_store_bets(bets)
-                    logging.info(f'action: apuesta_recibida | result: success | cantidad: {len(bets)}')
-                    MessageSender.send(client_sock, MultipleBetAckMessage().encode())
-            if msg[0] == MessageType.NO_MORE_BETS.value:
-                self._finished_agencies[msg[1]] = True
-                logging.info(f'action: no_more_bets | result: success | agency: {msg[1]}')
-                MessageSender.send(client_sock, NoMoreBetsAckMessage().encode())
-            if msg[0] == MessageType.GET_WINNERS.value:
-                agency = msg[1]
-                if len(self._finished_agencies) >= self._agencies_min_amount:
-                    if "winners" in self._winners:
-                        agency_winners = self.__agency_winners(agency)
-                        logging.info(f'action: get_winners | result: success | winners: {len(agency_winners)}')
-                        MessageSender.send(client_sock, WinnersMessage().encode(agency_winners))
-                    else:
-                        logging.info(f'action: get_winners | result: success | winner: wait')
-                        MessageSender.send(client_sock, WaitMessage().encode())
-                        self.__process_winners()
-                else:
-                    logging.info(f'action: get_winners | result: success | winner: wait')
-                    MessageSender.send(client_sock, WaitMessage().encode())
+            client_sock.settimeout(2.0)
+            while not self._shutdown_flag.value:
+                try:
+                    msg = MessageReceiver.recv(client_sock)
+                    if msg[0] == MessageType.SINGLE_BET.value:
+                        agency, first_name, last_name, document, birthdate, number = msg[1:]
+                        bet = Bet(agency, first_name, last_name, document, birthdate, number)
+                        self.__locked_store_bets([bet])
+                        logging.info(f'action: apuesta_almacenada | result: success | dni: {document} | numero: {number}')
+                        MessageSender.send(client_sock, SingleBetAckMessage().encode())
+                    if msg[0] == MessageType.MULTIPLE_BET.value:
+                        agency, bets_amount, bets = msg[1:]
+                        bets = [Bet(agency, *bet) for bet in bets]
+                        if len(bets) != bets_amount:
+                            logging.error(f'action: apuesta_recibida | result: fail | cantidad: {0}')
+                        else:
+                            self.__locked_store_bets(bets)
+                            logging.info(f'action: apuesta_recibida | result: success | cantidad: {len(bets)}')
+                            MessageSender.send(client_sock, MultipleBetAckMessage().encode())
+                    if msg[0] == MessageType.NO_MORE_BETS.value:
+                        self._finished_agencies[msg[1]] = True
+                        logging.info(f'action: no_more_bets | result: success | agency: {msg[1]}')
+                        MessageSender.send(client_sock, NoMoreBetsAckMessage().encode())
+                    if msg[0] == MessageType.GET_WINNERS.value:
+                        agency = msg[1]
+                        if len(self._finished_agencies) >= self._agencies_min_amount:
+                            if "winners" in self._winners:
+                                agency_winners = self.__agency_winners(agency)
+                                logging.info(f'action: get_winners | result: success | winners: {len(agency_winners)}')
+                                MessageSender.send(client_sock, WinnersMessage().encode(agency_winners))
+                            else:
+                                logging.info(f'action: get_winners | result: success | winner: wait')
+                                MessageSender.send(client_sock, WaitMessage().encode())
+                                self.__process_winners()
+                        else:
+                            logging.info(f'action: get_winners | result: success | winner: wait')
+                            MessageSender.send(client_sock, WaitMessage().encode())
+                except socket.timeout:
+                    continue
         except OSError as e:
             logging.info(f'action: apuesta_almacenada | result: fail | error: {e}')
         except RuntimeError as e:
@@ -135,7 +141,7 @@ class Server:
     def __handle_sigterm(self, signum, frame):
         self._server_socket.close()
         self._run = False
+        self._shutdown_flag.value = 1
         p: Process
         for p in self._processes:
-            p.terminate()
             p.join()
