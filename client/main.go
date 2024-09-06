@@ -143,13 +143,20 @@ func main() {
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, syscall.SIGTERM)
 	client := common.NewClient(clientConfig)
-	go client.StartClientLoop()
 
-	for {
-		s := <-c
+	exit := make(chan struct{})
+
+	go func() {
+		defer close(exit)
+		client.StartClientLoop()
+	}()
+	select {
+	case s := <-c:
 		if s == syscall.SIGTERM {
 			client.Shutdown()
-			break
+			<-exit
 		}
+	case <-exit:
 	}
+	os.Exit(0)
 }
