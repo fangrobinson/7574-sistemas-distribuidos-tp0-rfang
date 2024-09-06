@@ -72,53 +72,44 @@ func (c *Client) SendBets() ([]model.Bet, error) {
 
 	allBets := make([]model.Bet, 0)
 
+	file, err := os.Open(filePath)
+	if err != nil {
+		log.Criticalf("action: apuestas_enviadas | result: fail | cantidad: %v", len(allBets))
+	}
+	defer file.Close()
+
+	reader := csv.NewReader(file)
+
+	read_all := false
+
 	for {
-		file, err := os.Open(filePath)
-		if err != nil {
-			log.Criticalf("action: apuestas_enviadas | result: fail | cantidad: 0")
-			return nil, err
+		if read_all {
+			return allBets, nil
 		}
-		reader := csv.NewReader(file)
-
-		// Skip already processed lines
-		for i := 0; i < startLine; i++ {
-			_, err := reader.Read()
-			if err != nil {
-				if err == io.EOF {
-					file.Close()
-					return allBets, nil
-				}
-				log.Criticalf("action: apuestas_enviadas | result: fail | cantidad: 0")
-				file.Close()
-				return nil, err
-			}
-		}
-
 		lines := make([][]string, 0, batchSize)
 		for i := 0; i < batchSize; i++ {
 			record, err := reader.Read()
 			if err != nil {
 				if err == io.EOF {
+					read_all = true
 					break
 				}
-				log.Criticalf("action: apuestas_enviadas | result: fail | cantidad: 0")
-				file.Close()
+				log.Criticalf("action: apuestas_enviadas | result: fail | cantidad: %v", len(allBets))
 				return nil, err
 			}
 			lines = append(lines, record)
 		}
-		file.Close()
 
 		err = c.createClientSocket()
 		if err != nil {
-			log.Criticalf("action: apuestas_enviadas | result: fail | cantidad: 0")
+			log.Criticalf("action: apuestas_enviadas | result: fail | cantidad: %v", len(allBets))
 			return nil, err
 		}
 
 		bets, err := c.ProcessBatch(batchSize, lines)
 		c.conn.Close()
 		if err != nil {
-			log.Criticalf("action: apuestas_enviadas | result: fail | cantidad: 0")
+			log.Criticalf("action: apuestas_enviadas | result: fail | cantidad: %v", len(allBets))
 			return nil, err
 		}
 
