@@ -7,8 +7,11 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - LOGGING_LEVEL=DEBUG
+      - AGENCY_MIN_AMOUNT=1
     networks:
       - testing_net
+    volumes:
+      - ./server/config.ini:/config.ini
 
   client1:
     container_name: client1
@@ -17,14 +20,22 @@ services:
     environment:
       - CLI_ID=1
       - CLI_LOG_LEVEL=DEBUG
+      - NOMBRE=Santiago Lionel
+      - APELLIDO=Lorca
+      - DOCUMENTO=30904465
+      - NACIMIENTO=1999-03-17
+      - NUMERO=7574
     networks:
       - testing_net
     depends_on:
       - server
+    volumes:
+      - ./client/config.yaml:/config.yaml
+      - ./.data/dataset/:/data/
 
 networks:
   testing_net:
     ipam:
-      driver: default
       config:
-        - subnet: 172.25.125.0/24
+      - subnet: 172.25.125.0/24
+      driver: default

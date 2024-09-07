@@ -3,7 +3,9 @@ package main
 import (
 	"fmt"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/op/go-logging"
@@ -11,6 +13,7 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/7574-sistemas-distribuidos/docker-compose-init/client/common"
+	"github.com/7574-sistemas-distribuidos/docker-compose-init/client/model"
 )
 
 var log = logging.MustGetLogger("log")
@@ -37,6 +40,7 @@ func InitConfig() (*viper.Viper, error) {
 	v.BindEnv("loop", "period")
 	v.BindEnv("loop", "amount")
 	v.BindEnv("log", "level")
+	v.BindEnv("batch", "maxAmount")
 
 	// Try to read configuration from config file. If config file
 	// does not exists then ReadInConfig will fail but configuration
@@ -54,6 +58,27 @@ func InitConfig() (*viper.Viper, error) {
 	}
 
 	return v, nil
+}
+
+func NewBetFromEnvVars() (*model.Bet, error) {
+	v := viper.New()
+
+	// Configure viper to read env variables without prefix
+	v.AutomaticEnv()
+	v.SetEnvPrefix("")
+	// Use a replacer to replace env variables underscores with points. This let us
+	// use nested configurations in the config file and at the same time define
+	// env variables for the nested configurations
+	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+
+	// Add env variables supported
+	v.BindEnv("nombre")
+	v.BindEnv("apellido")
+	v.BindEnv("documento")
+	v.BindEnv("nacimiento")
+	v.BindEnv("numero")
+
+	return model.NewBet(v), nil
 }
 
 // InitLogger Receives the log level to be set in go-logging as a string. This method
@@ -103,13 +128,35 @@ func main() {
 	// Print program config with debugging purposes
 	PrintConfig(v)
 
-	clientConfig := common.ClientConfig{
-		ServerAddress: v.GetString("server.address"),
-		ID:            v.GetString("id"),
-		LoopAmount:    v.GetInt("loop.amount"),
-		LoopPeriod:    v.GetDuration("loop.period"),
+	if err != nil {
+		log.Criticalf("%s", err)
 	}
 
+	clientConfig := common.ClientConfig{
+		ServerAddress:  v.GetString("server.address"),
+		ID:             v.GetString("id"),
+		LoopAmount:     v.GetInt("loop.amount"),
+		LoopPeriod:     v.GetDuration("loop.period"),
+		MaxBatchAmount: v.GetInt("batch.maxAmount"),
+	}
+
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, syscall.SIGTERM)
 	client := common.NewClient(clientConfig)
-	client.StartClientLoop()
+
+	exit := make(chan struct{})
+
+	go func() {
+		defer close(exit)
+		client.StartClientLoop()
+	}()
+	select {
+	case s := <-c:
+		if s == syscall.SIGTERM {
+			client.Shutdown()
+			<-exit
+		}
+	case <-exit:
+	}
+	os.Exit(0)
 }

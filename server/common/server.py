@@ -1,13 +1,36 @@
 import socket
 import logging
+import signal
+
+from multiprocessing import Lock, Manager
+from multiprocessing import Process
+
+from common.connection.message_receiver import MessageReceiver
+from common.connection.types import MessageType
+from common.utils import Bet, has_won, load_bets, store_bets
+from common.connection.message_sender import MessageSender
+from common.connection import SingleBetAckMessage
+from common.connection import MultipleBetAckMessage
+from common.connection import NoMoreBetsAckMessage
+from common.connection import WaitMessage
+from common.connection.winners import WinnersMessage
 
 
 class Server:
-    def __init__(self, port, listen_backlog):
+    def __init__(self, port, listen_backlog, agencies_min_amount):
         # Initialize server socket
         self._server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self._server_socket.bind(('', port))
         self._server_socket.listen(listen_backlog)
+        self._run = True
+        self._agencies_min_amount = agencies_min_amount
+        self._finished_agencies = Manager().dict()
+        self._winners = Manager().dict()
+        signal.signal(signal.SIGTERM, self.__handle_sigterm)
+        self._bets_lock = Lock()
+        self._process_winners_lock = Lock()
+        self._processes = []
+        self._shutdown_flag = Manager().Value('i', 0)
 
     def run(self):
         """
@@ -20,11 +43,33 @@ class Server:
 
         # TODO: Modify this program to handle signal to graceful shutdown
         # the server
-        while True:
-            client_sock = self.__accept_new_connection()
-            self.__handle_client_connection(client_sock)
+        while self._run:
+            try:
+                client_sock = self.__accept_new_connection()
+                p = Process(target=self.__handle_client_connection, args=(client_sock, ))
+                p.start()
+                self._processes.append(p)
+            except OSError as _:
+                if not self._run:
+                    break
+                raise
 
-    def __handle_client_connection(self, client_sock):
+    def __process_winners(self):
+        with self._process_winners_lock:
+            with self._bets_lock:
+                if "winners" not in self._winners:
+                    bets = load_bets()
+                    winners = list(map(lambda x: (x.agency, x.document), filter(has_won, bets)))
+                    self._winners["winners"] = winners
+
+    def __agency_winners(self, agency):
+        return list(map(lambda x: x[1], filter(lambda x: int(x[0]) == int(agency), self._winners["winners"])))
+
+    def __locked_store_bets(self, bets: list[Bet]):
+        with self._bets_lock:
+            return store_bets(bets)
+
+    def __handle_client_connection(self, client_sock: socket.socket):
         """
         Read message from a specific client socket and closes the socket
 
@@ -32,14 +77,50 @@ class Server:
         client socket will also be closed
         """
         try:
-            # TODO: Modify the receive to avoid short-reads
-            msg = client_sock.recv(1024).rstrip().decode('utf-8')
-            addr = client_sock.getpeername()
-            logging.info(f'action: receive_message | result: success | ip: {addr[0]} | msg: {msg}')
-            # TODO: Modify the send to avoid short-writes
-            client_sock.send("{}\n".format(msg).encode('utf-8'))
+            client_sock.settimeout(2.0)
+            while not self._shutdown_flag.value:
+                try:
+                    msg = MessageReceiver.recv(client_sock)
+                    if msg[0] == MessageType.SINGLE_BET.value:
+                        agency, first_name, last_name, document, birthdate, number = msg[1:]
+                        bet = Bet(agency, first_name, last_name, document, birthdate, number)
+                        self.__locked_store_bets([bet])
+                        logging.info(f'action: apuesta_almacenada | result: success | dni: {document} | numero: {number}')
+                        MessageSender.send(client_sock, SingleBetAckMessage().encode())
+                    if msg[0] == MessageType.MULTIPLE_BET.value:
+                        agency, bets_amount, bets = msg[1:]
+                        bets = [Bet(agency, *bet) for bet in bets]
+                        if len(bets) != bets_amount:
+                            logging.error(f'action: apuesta_recibida | result: fail | cantidad: {0}')
+                        else:
+                            self.__locked_store_bets(bets)
+                            logging.info(f'action: apuesta_recibida | result: success | cantidad: {len(bets)}')
+                            MessageSender.send(client_sock, MultipleBetAckMessage().encode())
+                    if msg[0] == MessageType.NO_MORE_BETS.value:
+                        self._finished_agencies[msg[1]] = True
+                        logging.info(f'action: no_more_bets | result: success | agency: {msg[1]}')
+                        MessageSender.send(client_sock, NoMoreBetsAckMessage().encode())
+                    if msg[0] == MessageType.GET_WINNERS.value:
+                        agency = msg[1]
+                        if len(self._finished_agencies) >= self._agencies_min_amount:
+                            if "winners" in self._winners:
+                                agency_winners = self.__agency_winners(agency)
+                                logging.info(f'action: get_winners | result: success | winners: {len(agency_winners)}')
+                                MessageSender.send(client_sock, WinnersMessage().encode(agency_winners))
+                            else:
+                                logging.info(f'action: get_winners | result: success | winner: wait')
+                                MessageSender.send(client_sock, WaitMessage().encode())
+                                self.__process_winners()
+                        else:
+                            logging.info(f'action: get_winners | result: success | winner: wait')
+                            MessageSender.send(client_sock, WaitMessage().encode())
+                except socket.timeout:
+                    continue
         except OSError as e:
-            logging.error("action: receive_message | result: fail | error: {e}")
+            logging.info(f'action: apuesta_almacenada | result: fail | error: {e}')
+        except RuntimeError as e:
+            # Socket was closed
+            pass
         finally:
             client_sock.close()
 
@@ -56,3 +137,11 @@ class Server:
         c, addr = self._server_socket.accept()
         logging.info(f'action: accept_connections | result: success | ip: {addr[0]}')
         return c
+
+    def __handle_sigterm(self, signum, frame):
+        self._server_socket.close()
+        self._run = False
+        self._shutdown_flag.value = 1
+        p: Process
+        for p in self._processes:
+            p.join()
